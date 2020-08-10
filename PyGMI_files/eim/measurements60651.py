@@ -210,6 +210,7 @@ class Linearity60651(BaseMeasurement):
         Nominal SPL (dB)    Attn Setting (dB)    Diff ref  RefSPL    Nom Diff    Deviation    Uncertainty (dB) Class
         """
         wtitle = "Linearity (61672-3 Electrical Tests Par.14, 15)"
+               
         self.reset_instruments(el100=3.0)
         ref_range_lower = min(self.linear_operating_range)
         ref_point_linearity_check = 94 # FIXED value
@@ -223,11 +224,18 @@ class Linearity60651(BaseMeasurement):
         logging.info("ranges")
         logging.info(range_lower)
         logging.info(range_upper)
-
+        
+        # Document reference: New IEC Standards and Periodic Testing of Sound
+        # Level Meters. Section 6.9, standard 61672-3 clause 15.2 15.3 15.4
+        if self.conf.get("standard") == "60651":
+            freq = 4000        
+        elif self.conf.get("standard") == "61672-3":
+            freq = 8000
+        
         wait("Please configure SLM to LAF weighting at reference level range [%g, %g]." % (
              ref_range_lower, ref_range_upper))
                 
-        (target_volt, target_atten) = self._tune_wgenerator(freq=4000,
+        (target_volt, target_atten) = self._tune_wgenerator(freq=freq,
             target_slm=target_slm, wtitle=wtitle, shape='SIN')
         
         self.wgenerator.turn_on()
@@ -286,7 +294,7 @@ class Linearity60651(BaseMeasurement):
             print("Linearity check complete.")
             self.reset_instruments()
             return
-        
+
         def _print_level(upper, lower, at1, at2, at3, at4, dvm_rdg):
             """TODO this works only if upper > 94 > lower
             """
@@ -315,7 +323,7 @@ class Linearity60651(BaseMeasurement):
                 print("  0.0 | %.1f      | %.2f        | %.2f           | %.2f  | %.2f  | %s" % (
                       lower+2.0, at4, at1 - at4, nom_diff4, dvm_rdg, class4 ))
             else:
-                nom_diff1 = 94 - (upper - 2)
+                nom_diff1 = (upper - 2) - 94
                 nom_diff3 = 0.0
                 nom_diff4 = lower + 2 - 94
                 
@@ -330,14 +338,7 @@ class Linearity60651(BaseMeasurement):
                 print("  0.0 | Ref       | %.2f        | %.2f           | %.2f  | %.2f  | %s" % (
                       at1, at1 - at1, nom_diff3, dvm_rdg, class3 ))
                 print("  0.0 | %.1f      | %.2f        | %.2f           | %.2f  | %.2f  | %s" % (
-                      lower+2.0, at4, at1 - at4, nom_diff4, dvm_rdg, class4 ))
-                
-        # Document reference: New IEC Standards and Periodic Testing of Sound
-        # Level Meters. Section 6.9, standard 61672-3 clause 15.2 15.3 15.4
-        if self.conf.get("standard") == "60651":
-            freq = 4000        
-        elif self.conf.get("standard") == "61672-3":
-            freq = 8000   
+                      lower+2.0, at4, at1 - at4, nom_diff4, dvm_rdg, class4 ))   
         
         # We skip the first level range (reference) because we have already
         # checked it before in the linearity process.
@@ -351,7 +352,7 @@ class Linearity60651(BaseMeasurement):
             # If 94 is within range.
             if lrange_max > 94 > lrange_min:
                 wait("Please configure SLM to A weighting at level range [%g, %g]." % (lrange_min, lrange_max))
-                self.el100.set("01.00")
+                self.el100.set("10.00")
                 # Tune function generator and attenuator to achieve SLM value = (max upper value - 2)
                 # NOTE: Must keep ref_volt, ref_atten for later comparisons!
                 (ref_volt, ref_atten) = self._tune_wgenerator(freq=freq, target_slm=lrange_max - 2, wtitle=wtitle)
@@ -378,7 +379,7 @@ class Linearity60651(BaseMeasurement):
             # If 94 is outside range (e.g. range is [90,20]
             else:
                 wait("Please configure SLM to A weighting at level range [%g, %g]." % (lrange_min, lrange_max))
-                self.el100.set("01.00")
+                self.el100.set("10.00")
                 # Tune function generator and attenuator to achieve SLM value = (max upper value - 2)
                 # NOTE: Must keep ref_volt, ref_atten for later comparisons!
                 (ref_volt, ref_atten) = self._tune_wgenerator(freq=freq,
@@ -397,12 +398,12 @@ class Linearity60651(BaseMeasurement):
                 at2 = 0.0  # not used - we don't do anything about it.                                
                 upper_target = lrange_max - 2
                 atten_plus = 94 - upper_target
-                self.el100.set(ref_atten + atten_plus)
+                self.el100.set(at1 + atten_plus)
                 wait("Please tune the attenuator manually to achieve SLM %g dB" % upper_target)
                 at3 = self.el100.get_attenuation()
                         
                 lower_target = lrange_min + 2
-                atten_minus = 94 - lower_target
+                atten_minus = lrange_max - 2 - lower_target
                 self.el100.set(ref_atten + atten_minus)
                 wait("Please tune the attenuator manually to achieve SLM %g dB" % lower_target)
                 at4 = self.el100.get_attenuation()
@@ -834,6 +835,25 @@ class PulseRangeSoundExposureLevelAndOverload60651(BaseMeasurement):
         """
         # TODO
         return "0" 
+   
+class SelfGeneratedNoiseTest60651(BaseMeasurement):
+    def __call__(self):
+        """Self-generated noise results BS7580, 5.5.2,  Part 1
+        # dummy capacitor tolerance is +-20% of the microphone capacitor value.
+        """
+        wtitle = "Self-generated noise test (5.5.2 BS7580, Part 1)"
+        wait("Please disconnect the microphone and connect the dummy transmitter (capacitator).",
+             title=wtitle)
+    
+        weightings = ["A", "C", "Lin Wide"]
+        for w in weightings:
+            wait("Please use %s weighting." % w)
+            slms = getMultipleUserInputs(message="What is the SLM reading (dB)?",
+                                         title=wtitle, repeat=3, delay=3, type=float)
+            avg = sum(slms) / 3.0
+            print("%s weighting. SLM measurements: %g    %g    %g    mean = %g (dB)" % (
+                  w, slms[0], slms[1], slms[2], avg))
+   
     
 class AcousticTest60651(BaseMeasurement):
     def __run__(self):
